@@ -1,0 +1,600 @@
+---
+title: "Midterm"
+output: html_document
+author: Kaiwen Yang
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+# Introduction
+```
+# <small> Introduction
+# <small> Motivation & Reearch Quesiton
+######  It's been always discussed that living in a good neighbourhood will help you to reduce the risk of getting involved in a crime such as robbery, break and enter, homicides. Our parents and teachers had always told us not to go to the street in the neighbourhood with a bad reputation which occurred lots of major crimes such as robbery, theft and shooting. Those discussions about crimes really frightens me. While living in downtown Toronto, which is supposed to be a place where people have a relatively higher income compared to those cities and towns nearby, there are frequent robberies happening, even in front of the Robarts Library, while there are really few robberies reported in the nearby cities. Therefore, I'm really questioning the experiences I've learned from my parents and teachers. This inspired me about whether living in a high-quality neighbourhood would really reduce the possibility or frequency of crimes happening. Considering that people with high income would rather pay more on the normal goods such as rents and houses with rigorous security, while homeless people are not capable of securing their safety and properties, I decided to conduct an analysis on it. 
+######  The research seeks to investigate whether there exists a correlation between the individual income level of a neighborhood and the frequency of crime, particularly focusing on robbery incidents. Specifically, the hypothesis is whether higher-income neighborhoods experience lower rates of robbery compared to lower-income neighborhoods.
+
+
+# <small> Dataset
+######  The first data I use is the Census of Toronto City's 158 neighbourhoods of the year 2021 from the Toronto Open Data Catalogue. It is part of the census of Population in Canada, which collects data every five years on demographics, social, and economic aspects. It includes information such as neighbourhood name, average and median income of each neighborhood in Toronto. The data is sourced from Statistics Canada which covers Census years 2001, 2006, 2011, 2016, and 2021. 
+
+######  The second dataset I use is a group of 7 crime datasets from the Toronto Police Service Public Safety Data Portal, including recorded roberry, break and enter, homicides, shooting and different types of theft during the time between 1995 to 2023, where most of the recorded data are between 2015 to 2023. Since all of the dataset are recorded by the same department, the columns are similar, which stores the unique crime id, occurrence and recorded date, year, month, day of the week, hour, division type, location type, premises type, type of offense, type of crime, neighbourhood, status, longitude and latitude.
+  
+```{r echo = FALSE, message=FALSE}
+# Load required libraries
+library(dplyr)
+
+# URLs for the datasets
+urls <- c(
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Auto_Theft_Open_Data.csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Bicycle_Thefts_Open_Data.csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Break_and_Enter_Open_Data.csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Homicides_Open_Data_(ASR-RC-TBL-002).csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Robbery_Open_Data.csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Shooting_and_Firearm_Discharges_Open_Data.csv",
+  "https://raw.githubusercontent.com/KaiwenYangUT/JSC370/main/Theft_Over_Open_Data.csv"
+)
+
+# Function to read and preprocess data
+read_and_process <- function(url) {
+  data <- read.csv(url)
+  return(data)
+}
+
+# Read and preprocess all datasets
+datasets <- lapply(urls, read_and_process)
+
+# Combine datasets into one
+crime <- bind_rows(datasets, .id = "Dataset")
+```
+
+# <small> Methods
+######  To begin with, I read in the 7 crime datasets downloaded from the Toronto Police Department Open Dataset Catalogue.  Since the datasets were created by the same organization, the columns are similar such that I stacked them together to form a full dataset containing different types of crime, and the size of it is 217425 rows with 44 columns. First, I created an indicator variable “Robbery” to indicate whether the crime is robbery since our main focus is on Robbery. Second, I created a new variable “OCC_Month_Numeric” by transforming the occurrence month stored as a string to corresponding numerical number which could be stored for later use since it is easier to operate on numerical parameters. Then, I created a new variable “Occurence_Time” which stores the exact year, month, day of the month and the hour of the crime. In addition, I created a new variable “Day_Of_Week_Numeric” by converting the day of the week stored as a string to numeric representation, which has the similar purpose as occurrence month. Considering the size of the dataset and the complex column names, I decided to subset the data with necessary columns include: "Crime_Category","Robbery", "Occurrence_Time", "Year", "Month", "Day_Of_Week_Numeric", "Hour", "Neighbourhood", "Location_Type", "Premises_Type", "Longitude", "Latitude". I also created a new indicator variable “Darkness”, which indicates whether the sky is dark when the crime occurred, and it is determined by whether the hour of the day is after the sunset and before the sunrise. I determined the time of sunset and sunrise is 18 and 6 respectively, by common sense, and I would like to discover that further if time allows. By common senseI realized that the sunset and sunrise time differs by seasons, and the crime frequency might change with holidays and temperature. After doing literature review, I created a new variable “Season” by grouping the months. Finally, since the second data I’m going to use is restricted in the year of 2020, and since I may utilize census data in another year, I subset the dataset to a smaller dataset storing only crimes in 2020 instead of directly changing the full dataset. The filtered dataset comes to a size of 19153 rows with 14 columns.
+  
+  
+######  Additionally, I read in the transposed 2021 census dataset downloaded from the Toronto Open Data Catalogue, It is transposed since it is not formatted as I want, which is storing Neighbourhood Names as a column, not as the original datasets stores each neighbourhood name as each column. Since I’m interested in the income of individuals living in each neighbourhood, I select columns storing the median and average total income in 2020 due to efficiency. I also keep the column of "Neighbourhood Name" for the purpose of future possible merge with the crime dataset. Then, I checked for differences in the stored neighbourhood value for each dataset using set difference, and found there are 7 neighbourhood values stored expressively differently. A classical example would be storing "Taylor Massey" instead of "Taylor-Massey". I then updated all values in the census dataset.
+  
+```{r echo=FALSE}
+# - Create a indicator variable Robbery
+crime <- crime %>%
+  mutate(Robbery = MCI_CATEGORY == "Robbery")
+
+# - Transform OCC_MONTH into int
+# Create new column OCC_Month_Numeric that transform chr OCC_MONTH into int.
+crime$OCC_Month_Numeric <- match(crime$OCC_MONTH, month.name)
+
+# - Create a new column Occurence_Time with the transformation of OCC_YEAR, OCC_MONTH, OCC_DAY and OCC_HOUR.
+
+crime$Occurrence_Time <- as.POSIXct(paste(crime$OCC_YEAR, crime$OCC_Month_Numeric, crime$OCC_DAY, crime$OCC_HOUR, sep="-"), format="%Y-%m-%d-%H")
+
+#- Convert Day of the Week to numeric representation
+crime$Day_Of_Week_Numeric <- match(weekdays(crime$Occurrence_Time), c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+# - Keep only necessary columns and rename them
+crime <- crime[, c("MCI_CATEGORY", "Robbery", "Occurrence_Time","OCC_YEAR", "OCC_Month_Numeric", "Day_Of_Week_Numeric", "OCC_HOUR", "NEIGHBOURHOOD_158", "LOCATION_TYPE", "PREMISES_TYPE", "LONG_WGS84", "LAT_WGS84")]
+colnames(crime) <- c("Crime_Category","Robbery", "Occurrence_Time", "Year", "Month", "Day_Of_Week_Numeric", "Hour", "Neighbourhood", "Location_Type", "Premises_Type", "Longitude", "Latitude")
+
+# - Create a new variable Season by grouping the month
+# Create Variable Season and Summary
+get_season <- function(month) {
+  if (month %in% c(3, 4, 5)) {
+    return("Spring")
+  } else if (month %in% c(6, 7, 8)) {
+    return("Summer")
+  } else if (month %in% c(9, 10, 11)) {
+    return("Fall")
+  } else {
+    return("Winter")
+  }
+}
+
+# Add a new column for season based on Month
+crime$Season <- sapply(crime$Month, get_season)
+
+# - Create a new column Darkness, indicating whether the time is after sunset but before sunrise
+
+# Define average sunset and sunrise times in Toronto (example times)
+average_sunset_time <- 18
+average_sunrise_time <- 6
+
+# Create the indicator variable
+crime$Darkness <- ifelse(crime$Hour >= average_sunset_time | crime$Hour < average_sunrise_time, 1, 0)
+
+# - Create new dataset crime_2020 by filtering crime happened in the year of 2020
+
+# Keep only year = 2020
+crime_2020 <- subset(crime, Year == 2020)
+```
+
+```{r echo=FALSE}
+# - Cleaning the dataset first by removing crime with non-recorded neighbourhood
+crime_2020 <- subset(crime_2020, Neighbourhood != "NSA")
+```
+
+```{r echo=FALSE, message=FALSE}
+# <small> Read in Toronto 158 Neighbourhoods' Census Profile 
+
+# Install and load the readxl package
+# install.packages("readxl")
+library(readxl)
+
+# URL of the Excel file on GitHub
+github_url <- "https://github.com/KaiwenYangUT/JSC370_Project/raw/main/Income_Dataset.xlsx"
+
+# File destination on your local machine
+local_file <- "Income_Dataset.xlsx"
+
+# Download the file from GitHub
+download.file(github_url, local_file, mode = "wb")
+
+# Read the Excel file
+income <- read_excel(local_file)
+
+# Clean up: Delete the downloaded file from your local directory
+# file.remove(local_file)
+```
+
+```{r echo=FALSE}
+# - Select necessary columns related to Income such as "Average total income in 2020 among recipients" and "Average after-tax income in 2020 among recipients". I also keep the column of "Neighbourhood Name" for the purpose of future possible merge with the crime dataset.
+
+income_2020 <- income[, c("Neighbourhood Name",
+                        "Median total income in 2020  among recipients ($)",
+                        "Average total income in 2020 among recipients ($)")]
+colnames(income_2020) <- c("Neighbourhood", "Median_Income", "Average_Income")
+```
+
+```{r echo=FALSE}
+#- Check for difference in the stored Neighbourhood value for each dataset and found there are 7 neighbourhood values stored expressive differently. An classical example would be that storing "Taylor Massey" instead of "Taylor-Massey".
+
+# Extract the neighborhood columns from each dataset
+neighborhood_crime <- crime_2020$Neighbourhood
+neighborhood_income <- income_2020$Neighbourhood
+
+# Find the differences
+difference_crime_to_income <- setdiff(neighborhood_crime, neighborhood_income)
+difference_income_to_crime <- setdiff(neighborhood_income, neighborhood_crime)
+
+# Output the differences
+# print("Neighborhoods in crime dataset not present in income dataset:")
+# print(difference_crime_to_income)
+
+# print("Neighborhoods in income dataset not present in crime dataset:")
+# print(difference_income_to_crime)
+
+# Replace the values
+income_2020$Neighbourhood <- gsub("O`Connor Parkview", "O'Connor-Parkview", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("Danforth-East York", "Danforth East York", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("Taylor Massey", "Taylor-Massey", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("East End Danforth", "East End-Danforth", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("Cabbagetown-South St. James Town", "Cabbagetown-South St.James Town", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("North St. James Town", "North St.James Town", income_2020$Neighbourhood)
+income_2020$Neighbourhood <- gsub("Yonge-St. Clair", "Yonge-St.Clair", income_2020$Neighbourhood)
+```
+
+# <small> Preliminary Results
+
+# <small> Tabular Tables
+```{r echo=FALSE}
+# install.packages("knitr")
+# install.packages("kableExtra")
+# Load required libraries
+library(knitr)
+library(ggplot2)
+```
+  
+######  To start with, I summarized statistics in tabular form. For the crime dataset of 2020, there are 72 missing values in “Day_Of_Week_Numeric”, 71 missing values in “Hour”. For the income dataset of 2020, the minimum, first quantile, median, mean, third quartile and max of “Average_Income” is 33720, 43190, 55375, 64037, 71300 and 237600, respectively, and for “Median_Income” is 28400, 34000, 39000, 41985, 46400 and 74500, respectively.
+  
+```{r echo=FALSE}
+# Load required library
+library(knitr)
+
+# Summary statistics for numerical variables in crime_2020
+crime_numeric_summary <- summary(select(crime_2020, Day_Of_Week_Numeric, Hour))
+
+# Summary statistics for numerical variables in income_2020
+income_numeric_summary <- summary(select(income_2020, Average_Income, Median_Income))
+
+# Create a table using kable function
+kable(crime_numeric_summary, caption = "Numerical variables in Crime Data of 2020")
+
+kable(income_numeric_summary, caption = "Numerical variables in Income Data of 2020")
+```
+```{r echo=FALSE}
+# Summary statistics for categorical variables in crime_2020
+crime_categorical_summary <- table(Crime_Category = crime_2020$Crime_Category, Season = crime_2020$Season, Darkness = crime_2020$Darkness)
+
+# Create a table using kable function
+kable(crime_categorical_summary, caption = "Categorical variables in Crime Data of 2020")
+```
+
+# <small> Figures 
+######  First, I plotted the top 5 and lowest 5 crime counts neighbourhoods, showing that there are acutually big differences in crime frequency between neighbourhoods.
+  
+```{r echo=FALSE}
+# - Plot the top 5 and lowest 5 crime counts neighbourhoods, shows that there are acutually big difference in crime frequency between neighbourhoods.
+
+# Step 1: Group by neighbourhood and compute the crime counts
+crime_counts <- table(crime_2020$Neighbourhood)
+
+# Step 2: Find the top 5 and lowest 5 neighbourhoods based on crime counts
+sorted_neighbourhoods <- sort(crime_counts, decreasing = TRUE)
+top5_neighbourhoods <- names(sorted_neighbourhoods)[1:5]
+lowest5_neighbourhoods <- names(sorted_neighbourhoods)[(length(sorted_neighbourhoods) - 4):length(sorted_neighbourhoods)]
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  Neighbourhood = names(crime_counts),
+  Crime_Count = as.vector(crime_counts),
+  Type = ifelse(names(crime_counts) %in% top5_neighbourhoods, "Top 5", 
+                ifelse(names(crime_counts) %in% lowest5_neighbourhoods, "Lowest 5", "Other")))
+
+# Plot the top 5 and lowest 5 neighbourhoods with different colors
+library(ggplot2)
+
+ggplot(subset(plot_data, Type %in% c( "Lowest 5", "Top 5")), aes(x = reorder(Neighbourhood, -Crime_Count), y = Crime_Count, fill = Type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Top 5" = "#FFC0CB", "Lowest 5" = "#ADD8E6"), labels = c("Lowest 5", "Top 5")) +
+  labs(title = "Top 5 and Lowest 5 Neighbourhoods by Crime Counts", x = "Neighbourhood Name", y = "Crime Count")+
+  coord_flip()
+```
+  
+######  Additionally, I plotted the top 5 and lowest 5 crime counts neighbourhoods, showing that there are actually big differences in crime frequency between neighbourhoods. Afterwards, I plotted the top 5 and lowest 5 average income neighbourhoods, while finding that there are no matches or pairing with any of the top 5 and lowest 5 crime counts neighbourhoods.
+  
+```{r echo=FALSE}
+# - Plot the top 5 and lowest 5 average income neighbourhoods, while finding that there are no match and paring with any of the top 5 and lowest 5 crime counts neighbourhoods.
+
+# Load the ggplot2 library
+library(ggplot2)
+
+# Sort the dataset by Median_Income
+average_income_2020_sorted <- income_2020[order(-income_2020$Average_Income), ]
+
+# Get the top 5 and lowest 5 neighborhoods
+top_5_average <- head(average_income_2020_sorted, 5)
+lowest_5_average <- tail(average_income_2020_sorted, 5)
+
+# Combine top 5 and lowest 5 neighborhoods
+top_lowest_average <- rbind(top_5_average, lowest_5_average)
+
+# Reorder the levels of the Neighbourhood factor
+top_lowest_average$Neighbourhood <- factor(top_lowest_average$Neighbourhood, levels = c(top_5_average$Neighbourhood, lowest_5_average$Neighbourhood))
+
+# Create a plot
+plot <- ggplot(data = top_lowest_average, aes(x = Neighbourhood, y = Average_Income, fill = factor(ifelse(Neighbourhood %in% top_5_average$Neighbourhood, "Top 5", "Lowest 5")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("Top 5" = "#FFC0CB", "Lowest 5" = "#ADD8E6")) +
+  labs(title = "Top 5 and Lowest 5 Neighborhoods by Average Income",
+       x = "Neighbourhood",
+       y = "Average Income",
+       fill = "Category") +
+  coord_flip()
+
+# Show the plot
+print(plot)
+```
+  
+######  Considering that people with really high or low income may affect the average, I plotted the top 5 and lowest 5 median income neighbourhoods. It’s surprising that I still could not find any neighbours that match the top 5 and lowest 5 crime counts neighbourhoods.
+  
+```{r echo=FALSE}
+# Load the ggplot2 library
+library(ggplot2)
+
+# Sort the dataset by Median_Income
+median_income_2020_sorted <- income_2020[order(-income_2020$Median_Income), ]
+
+# Get the top 5 and lowest 5 neighborhoods
+top_5_median <- head(median_income_2020_sorted, 5)
+lowest_5_median <- tail(median_income_2020_sorted, 5)
+
+# Combine top 5 and lowest 5 neighborhoods
+top_lowest_median <- rbind(top_5_median, lowest_5_median)
+
+# Reorder the levels of the Neighbourhood factor
+top_lowest_median$Neighbourhood <- factor(top_lowest_median$Neighbourhood, levels = c(top_5_median$Neighbourhood, lowest_5_median$Neighbourhood))
+
+# Create a plot
+plot <- ggplot(data = top_lowest_median, aes(x = Neighbourhood, y = Median_Income, fill = factor(ifelse(Neighbourhood %in% top_5_median$Neighbourhood, "Top 5", "Lowest 5")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = c("Top 5" = "#FFC0CB", "Lowest 5" = "#ADD8E6")) +
+  labs(title = "Top 5 and Lowest 5 Neighborhoods by Median Income",
+       x = "Neighbourhood",
+       y = "Median Income",
+       fill = "Category") +
+  coord_flip()
+
+# Show the plot
+print(plot)
+```
+  
+######  Afterall, I plotted the Median Income and Average Income for each of the 10 top and worst neighbourhoods, ordered by median since it is more reliable, trying to find out whether there is a simple pattern within the average and median income with the crime counts of the 10 neighbourhood. Surprisingly, even though the order of the 10 neighborhoods in median income is mixed and does not have a clear pattern, I found that the gap between the median and average income within a high crime frequency neighbourhood is clearly bigger than the gap between the median and average income within a low crime frequency neighbourhood.
+  
+```{r echo=FALSE}
+# - I Plot the Median Income and Average Income for each of the 10 top and worst neighbourhoods, ordered by median since it is more reliable, trying to find out the whether there is a simple pattern within the average and median income with the crime counts of the 10 neighbourhood. Surprisingly, even though the order of the 10 neighborhoods in median income is mixed and does not have a clear pattern, I found that when gap between the median and average income within a high crime frequency neighbourhood is clearly bigger than the gap between the median and average income within a low crime frequency neighbourhood.
+# Step 1: Filter income data for the 10 neighborhoods
+income_subset <- subset(income_2020, Neighbourhood %in% c(top5_neighbourhoods, lowest5_neighbourhoods))
+
+# Step 2: Create a data frame for plotting
+plot_data_income <- data.frame(
+  Neighbourhood = income_subset$Neighbourhood,
+  Median_Income = income_subset$Median_Income,
+  Average_Income = income_subset$Average_Income,
+  Type = ifelse(income_subset$Neighbourhood %in% top5_neighbourhoods, "Top 5", 
+                ifelse(income_subset$Neighbourhood %in% lowest5_neighbourhoods, "Lowest 5", "Other"))
+)
+
+# Step 3: Plot Median Income and Average Income for each neighbourhood
+library(ggplot2)
+
+ggplot(plot_data_income, aes(x = Neighbourhood, y = Median_Income, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack", alpha = 0.7) +
+  geom_bar(aes(x = reorder(Neighbourhood, -Median_Income), y = Average_Income, fill = Type),
+           stat = "identity", position = "stack", alpha = 0.7) +
+  scale_fill_manual(values = c("Top 5" = "#FFC0CB", "Lowest 5" = "#ADD8E6"), labels = c("Lowest 5", "Top 5")) +
+  labs(title = "Median & Average Income\nof Top 5 and Lowest 5 Crime Counts Neighbourhoods\n(Order by Median)",
+       x = "Neighbourhood Name", y = "Income") +
+  coord_flip() +
+  labs(caption = "Note: The darker pink/blue bar represents median, the lighter pink/blue bar represents average")
+
+```
+
+
+```{r eval=FALSE}
+# Top and Lowest 20 Crime Counts
+
+# Step 1: Group by neighbourhood and compute the crime counts
+crime_counts <- table(crime_2020$Neighbourhood)
+
+# Step 2: Find the top 10 and lowest 10 neighbourhoods based on crime counts
+sorted_neighbourhoods <- sort(crime_counts, decreasing = TRUE)
+top10_neighbourhoods <- names(sorted_neighbourhoods)[1:20]
+lowest10_neighbourhoods <- names(sorted_neighbourhoods)[(length(sorted_neighbourhoods) - 19):length(sorted_neighbourhoods)]
+
+# Create data frames for plotting top 10 and lowest 10 neighbourhoods
+top10_plot_data <- data.frame(
+  Neighbourhood = names(crime_counts),
+  Crime_Count = as.vector(crime_counts),
+  Type = ifelse(names(crime_counts) %in% top10_neighbourhoods, "Top 20", "Others")
+)
+
+lowest10_plot_data <- data.frame(
+  Neighbourhood = names(crime_counts),
+  Crime_Count = as.vector(crime_counts),
+  Type = ifelse(names(crime_counts) %in% lowest10_neighbourhoods, "Lowest 20", "Others")
+)
+
+# Plot the top 10 neighbourhoods
+ggplot(subset(top10_plot_data, Type == "Top 20"), aes(x = reorder(Neighbourhood, -Crime_Count), y = Crime_Count)) +
+  geom_bar(stat = "identity", fill = "#FFC0CB") +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+  labs(title = "Top 20 Neighbourhoods by Crime Counts", x = "Neighbourhood", y = "Crime Count") +
+  coord_flip()
+
+# Plot the lowest 10 neighbourhoods
+ggplot(subset(lowest10_plot_data, Type == "Lowest 20"), aes(x = reorder(Neighbourhood, Crime_Count), y = Crime_Count)) +
+  geom_bar(stat = "identity", fill = "#ADD8E6") +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1)) +
+  labs(title = "Lowest 20 Neighbourhoods by Crime Counts", x = "Neighbourhood", y = "Crime Count") +
+  coord_flip()
+
+```
+
+
+```{r eval=FALSE}
+# Top and Lowest 10 Median Income Neighbours
+
+# Load the necessary libraries
+library(ggplot2)
+
+# Step 1: Group by neighbourhood and compute the median income
+median_income <- aggregate(Median_Income ~ Neighbourhood, data = income_2020, FUN = median)
+
+# Step 2: Find the top 10 and lowest 10 neighbourhoods based on median income
+sorted_neighbourhoods_income <- median_income[order(median_income$Median_Income), ]
+top10_neighbourhoods_income <- tail(sorted_neighbourhoods_income$Neighbourhood, 20)
+lowest10_neighbourhoods_income <- head(sorted_neighbourhoods_income$Neighbourhood, 20)
+
+# Create a data frame for plotting the top 10 and lowest 10 median incomes
+plot_data_income <- data.frame(
+  Neighbourhood = median_income$Neighbourhood,
+  Median_Income = median_income$Median_Income,
+  Type = ifelse(median_income$Neighbourhood %in% top10_neighbourhoods_income, "Top 20", 
+                ifelse(median_income$Neighbourhood %in% lowest10_neighbourhoods_income, "Lowest 20", "Other"))
+)
+
+# Plot the top 10 median incomes
+ggplot(subset(plot_data_income, Type == "Top 20"), aes(x = reorder(Neighbourhood, Median_Income), y = Median_Income)) +
+  geom_bar(stat = "identity", fill = "#FFC0CB") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(title = "Top 20 Neighbourhoods by Median Income", x = "Neighbourhood", y = "Median Income") +
+  coord_flip()
+
+# Plot the lowest 10 median incomes
+ggplot(subset(plot_data_income, Type == "Lowest 20"), aes(x = reorder(Neighbourhood, Median_Income), y = Median_Income)) +
+  geom_bar(stat = "identity", fill = "#ADD8E6") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  labs(title = "Lowest 20 Neighbourhoods by Median Income", x = "Neighbourhood", y = "Median Income") +
+  coord_flip()
+
+```
+
+
+
+
+
+
+
+```{r eval=FALSE}
+# Filter out rows with Robbery == TRUE to create robbery_2020 dataset
+robbery_2020 <- subset(crime_2020, Robbery == TRUE)
+
+# Group by neighborhood and calculate frequency of robbery incidents
+robbery_counts <- table(robbery_2020$Neighbourhood)
+
+# Convert to data frame
+robbery_counts_df <- as.data.frame(robbery_counts, stringsAsFactors = FALSE)
+
+# Rename columns for clarity
+colnames(robbery_counts_df) <- c("Neighbourhood", "Robbery_Count")
+
+# Sort the neighborhoods based on robbery counts
+sorted_robbery_neighbourhoods <- robbery_counts_df[order(robbery_counts_df$Robbery_Count, decreasing = TRUE), ]
+
+# Top 5 neighbourhoods with the most robbery incidents
+top_10_robbery_neighbourhoods <- head(sorted_robbery_neighbourhoods, 10)
+
+# Lowest 5 neighbourhoods with the least robbery incidents
+lowest_10_robbery_neighbourhoods <- tail(sorted_robbery_neighbourhoods, 10)
+
+# Plot the top 5 neighbourhoods with the most robbery incidents
+library(ggplot2)
+
+ggplot(top_10_robbery_neighbourhoods, aes(x = reorder(Neighbourhood, Robbery_Count), y = Robbery_Count)) +
+  geom_bar(stat = "identity", fill = "#FFC0CB") +
+  labs(x = "Neighbourhood", y = "Robbery Count", title = "10 Neighbourhoods with Most Robbery Incidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()
+
+ggplot(lowest_10_robbery_neighbourhoods, aes(x = reorder(Neighbourhood, Robbery_Count), y = Robbery_Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(x = "Neighbourhood", y = "Robbery Count", title = "10 Neighbourhoods with Fewest Robbery Incidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()
+
+```
+  
+######  Finally, since there are still more information needed but not restricted to to confounders to answer my question, I simply tried using linear Regression to Classify whether a robbery crime could be identified among different types of crimes using “Robbery” as response variable, “Median_Income”, “Darkness” and “Season” as predictor. The estimate of “Median_Income” is -9.893e-06, which means that median income of a city has a really small impact on the likelihood of a robbery crime, which seems contrary to my expectation, but reasonable since it is not grouped by neighbourhoods.
+  
+```{r eval=FALSE}
+# Load required libraries
+library(dplyr)
+
+# Prepare the data
+crime_data <- crime_2020 %>%
+  select(Robbery, Darkness, Season, Neighbourhood)
+
+# Merge with income data
+crime_data <- merge(crime_data, income_2020, by = "Neighbourhood")
+crime_data <- crime_data %>%
+  select(Robbery, Darkness, Season, Median_Income)
+
+# Convert categorical variables to dummy variables
+crime_data <- crime_data %>%
+  mutate(Season = as.factor(Season))
+
+# Split data into training and testing sets
+set.seed(123)
+train_index <- sample(nrow(crime_data), 0.7 * nrow(crime_data))
+train_data <- crime_data[train_index, ]
+test_data <- crime_data[-train_index, ]
+
+# Fit logistic regression model
+model <- glm(Robbery ~ ., data = train_data, family = binomial)
+
+summary(model)
+```
+
+# <small> Summary:
+######  In conclusion, my research question has not yet been fully answered, as there is still additional information and analysis needed to gather more insights. Furthermore, I have found that the correlation between individual incomes and crime frequency within the same neighborhood is not as straightforward as initially assumed. This is evidenced by the discrepancy observed between the top 5 and lowest 5 crime count neighborhoods and those with the top 5 and lowest 5 average or median incomes. 
+######  Additionally, a surprising yet valuable finding has emerged: the frequency of crime counts in a neighborhood may be correlated with the disparity between the average and median income levels of that neighborhood. This suggests that a larger income gap within a neighborhood could potentially lead to an increase in crime counts.
+######  Moreover, with Toronto boasting 158 different neighborhoods, interpreting the coefficients of models fitted with neighborhoods becomes considerably complex. Therefore, I plan to further delve into this matter to gain deeper insights.
+
+
+
+```{r eval=FALSE}
+# Summary statistics
+# summary_stats <- summary(merged_data$Average_Income)
+# summary_table <- data.frame(
+#  Statistics = c("Minimum", "1st Quartile", "Median", "Mean", "3rd Quartile", "Maximum"),
+#  Value = c(min(merged_data$Average_Income), quantile(merged_data$Average_Income, 0.25), 
+#            median(merged_data$Average_Income), mean(merged_data$Average_Income), 
+#            quantile(merged_data$Average_Income, 0.75), max(merged_data$Average_Income))
+#)
+
+```
+
+
+```{r}
+# Check:
+
+
+#a. potential confounders / risk factors
+
+# Confounder
+# 1. Season: affect both sunrise time and sunset time thus affect the predictor variable after_sunset_before_sunrise, where some of the robbery happened within the darkness but not treated as is while some of the robbery happened outside darkness but treated as it is. It also affect the response variable: Robbery. There are research found that "daily assault [and theft] counts significantly increased with rising temperature and the rate of increase slowed as temperatures exceeded 30 °C".
+# Hot and bothered? Associations between temperature and crime in Australia
+# Heather R. Stevens & Paul J. Beggs & Petra L. Graham & Hsing-Chung 
+# Changhttps://link-springer-com.myaccess.library.utoronto.ca/content/pcrime/10.1007/s00484-019-01689-y.pcrime
+
+# 2. Year
+# Since the outbreak of Covid-19, the crime rate increased sharply, and the article "Effects of the COVID-19 pandemic on domesticviolence in Los Angeles" have discussed it. The year could both affect sunrise time and sunset time, and also have a impact on the crime rate, where Robbery is one type of crime.
+
+# Risk Factor
+# 1. Neighbourhood
+# In common sense, we know that there are dangerous neighbours.
+
+# 2. Premises/Location Type
+# In common sense, we know that it is easier to get robbed on the street instead of in an appartment with security
+```
+
+
+
+```{r eval=FALSE}
+# b. statistical outliers of the exposure and the confounders of interest (if continuous)
+
+
+# Boxplot for Hour
+#boxplot(crime$Hour, main = "Boxplot of Hour of the Day")
+#boxplot(crime$Day_Of_Week_Numeric, main = "Boxplot of Day of the Week")
+
+# Boxplot for Year
+#boxplot(crime$Year, main = "Boxplot of Year")
+# There do have some outliers for the year before 2005, while most of the year are between 2010 to 2023.
+```
+
+```{r eval=FALSE}
+#hour_stats <- crime %>%
+##  group_by(Hour) %>%
+#  summarise(
+#    Count = n()
+#  )
+#print(hour_stats)
+
+#year_stats <- crime %>%
+#  group_by(Year) %>%
+#  summarise(
+#    Count = n()
+#  )
+#print(year_stats)
+#
+#dow_stats <- crime %>%
+#  group_by(Day_Of_Week_Numeric) %>%
+#  summarise(
+#    Count = n()
+#  )
+#print(dow_stats)
+```
+
+```{r eval=FALSE}
+# c. variables with high spread or observations that don’t make sense
+
+# d. missing data
+
+# Keep only rows without missing data
+#crime <- crime[complete.cases(crime), ]
+
+# Check the dimensions of the new dataset
+#dim(crime)
+#head(crime)
+```
+
+
+
+
+```{r eval = FALSE}
+# <small> Merging 2 Datasets
+# - Merged the two datasets by Neighbourhood
+# Merge the datasets based on the common columns
+#merged_data <- merge(income_2020, crime_2020, by = "Neighbourhood")
+
+# View the merged dataset
+#head(merged_data)
+
+#dim(merged_data)
+```
